@@ -7,6 +7,7 @@ import scipy
 import sklearn
 from sklearn import datasets
 from napse import *
+from sklearn.preprocessing import normalize
 
 
 
@@ -26,13 +27,15 @@ def load_dataset(DataNoise = 0.05, Visualize = False):
 np.random.seed(1001)
 train_X, train_Y, test_X, test_Y = load_dataset(DataNoise = 0.15, Visualize=False)
 
-
-
-
+def filter_func (x_):
+    return sklearn.preprocessing.normalize(x_)
+filter_dummy = lambda x:x
 nn =      Layer("input_layer",(2,1)) \
         > Layer("h1", (5,1)) \
-        > Layer("output_layer",(1,1), activation=Activation.SIGMOID) \
-        > CostLayer("cost_layer",(1,1))
+            | PreFilter("Filter1", filter_dummy)\
+            | PostFilter("Filter2", filter_dummy)\
+        > Layer("output_layer",(1,1), activation=Activation.SIGMOID)\
+        > CostLayer()
 
 nn.train(train_X,train_Y, num_iterations=15000, learning_rate=0.2)
 train_predict = nn.predict(train_X)

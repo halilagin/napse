@@ -1,19 +1,26 @@
-#!/usr/bin/env python3.7
+#!/usr/bin/env python4.7
+
+# set textwidth=79  " lines longer than 79 columns will be broken
+# set shiftwidth=4  " operation >> indents 4 columns; << unindents 4 columns
+# set tabstop=4     " a hard TAB displays as 4 columns
+# set expandtab     " insert spaces when hitting TABs
+# set softtabstop=4 " insert/delete 4 spaces when hitting a TAB/BACKSPACE
+# set shiftround    " round indent to multiple of 'shiftwidth'
+# set autoindent    " align the new line indent with the previous line
+
+
 #import cv2
 import numpy as np
 import scipy
 import sklearn
 from activation_functions import ActivationFunctions
 from enum import Enum
+from optimizers import *
+from utils import *
 
 '''
 see: https://www.geeksforgeeks.org/operator-overloading-in-python/
 '''
-
-
-class Activation(Enum):
-    RELU = "relu"
-    SIGMOID = "sigmoid"
 
 class NapseBase():
     def __init__(self, cost_layer):
@@ -22,126 +29,6 @@ class NapseBase():
         self.cost_layer = cost_layer
         self.hidden_layers = []
 
-class LayerBase():
-    def __init__(self, name,shape, activation=Activation.RELU):
-        self.weights = {"W":None, "b":None}
-        self.X=None
-        self.grads = {"dA":None,"dW":None, "db":None}
-        self.input_layer=self
-        self.output_layer=self
-        self.cost_layer=self
-        self.prev=self
-        self.next=self
-        assert (name!=None), "layer name cannot be None"
-        self.name=name
-        self.shape=shape
-        self.size=np.prod(shape)
-        self.cache=None
-        self.activation=activation
-
-
-class NapseOptimizerBase():
-    def __init__(self, napse):
-        pass
-
-    def optimize(self):
-        pass
-
-class NapseOptimizerGD(NapseOptimizerBase):
-    def __init__(self, napse):
-        pass
-        self.nn = napse
-
-
-    def linear_forward(self,A,W,b):
-        Z = np.dot(W,A)+b
-        cache = {"A":A, "W":W, "b":b}
-        return Z, cache
-
-    def linear_activation_forward(self,layer):
-        W,b = layer.weights["W"], layer.weights["b"]
-        Z, linear_cache = self.linear_forward(layer.prev.A(), W, b)
-        A_, activation_cache = ActivationFunctions().forward[layer.activation.value](Z)
-        cache = {"linear":linear_cache, "activation":activation_cache}
-        return A_, cache
-
-    def propagateForward(self, layer):
-        Aprev,cache = self.linear_activation_forward(layer)
-        layer.X = Aprev 
-        layer.cache = cache
-
-    def forward(self):
-        for hlayer in self.nn.hidden_layers:
-            self.propagateForward(hlayer)
-        Aprev, cache = self.linear_activation_forward(self.nn.output_layer)
-        self.nn.output_layer.X = Aprev
-        self.nn.output_layer.cache = cache
-
-    def propagateBackward(self):
-        pass
-        print (self.name, "propagate backward")
-
-
-    def linear_backward(self, dZ, cache):
-        A_prev, W, b = cache["A"], cache["W"], cache["b"]
-        m = A_prev.shape[1]
-        dW = 1./m * np.dot(dZ, A_prev.T)
-        db = 1./m * np.sum(dZ, axis=1, keepdims=True)
-        dA_prev = np.dot(W.T, dZ)
-        return dA_prev, dW, db
-
-    def linear_activation_backward(self, layer):
-        dZ = ActivationFunctions().backward[layer.activation.value](layer.grads["dA"], layer.cache["activation"])
-        return self.linear_backward(dZ, layer.cache["linear"]) 
-
-    def backward(self, Y):
-        AL = self.nn.output_layer.A()
-        m = AL.shape[1]
-        Y = Y.reshape(AL.shape)
-
-
-        self.nn.output_layer.grads["dA"] = - (np.divide(Y, AL) - np.divide(1 - Y, 1 - AL))
-
-        dA, dW, db = self.linear_activation_backward(self.nn.output_layer)
-        self.nn.output_layer.grads["dW"] = dW
-        self.nn.output_layer.grads["db"] = db
-        self.nn.output_layer.prev.grads["dA"] = dA
-
-        for hlayer in reversed(self.nn.hidden_layers):
-            dA_prev_temp, dW_temp, db_temp = self.linear_activation_backward(hlayer)
-            hlayer.grads["dW"] = dW_temp
-            hlayer.grads["db"] = db_temp
-            hlayer.prev.grads["dA"] = dA_prev_temp
-
-    def compute_cost(self):
-        AL = self.nn.output_layer.A()
-        Y = self.nn.Y
-        m = Y.shape[1]
-        cost = -np.sum(Y*np.log(AL)+(1-Y)*np.log(1-AL))/m
-        return np.squeeze(cost)
-
-    def epoch(self,  n, learning_rate=0.001):
-        for i in range(n):
-            self.forward()
-            self.nn.cost_layer.cost = self.compute_cost()
-            self.nn.costs.append(self.nn.cost_layer.cost)
-            self.backward(self.nn.Y)
-            self.update_weights(learning_rate)
-
-    def update_weights(self, learning_rate=0.001):
-        for layer in self.nn.hidden_layers:
-            layer.weights["W" ] = layer.weights["W"] - learning_rate * layer.grads["dW"]
-            layer.weights["b"]  = layer.weights["b"] - learning_rate * layer.grads["db"]
-        self.nn.output_layer.weights["W" ] = self.nn.output_layer.weights["W"] - learning_rate * self.nn.output_layer.grads["dW"]
-        self.nn.output_layer.weights["b"]  = self.nn.output_layer.weights["b"] - learning_rate * self.nn.output_layer.grads["db"]
-
-
-    def predict(self, X):
-        self.forward()
-        return  self.nn.output_layer.A().flatten()
-        
-    def optimize(self,num_iterations, learning_rate):
-        self.epoch(num_iterations, learning_rate)
 
 class Napse(NapseBase):
 
@@ -207,24 +94,83 @@ class Napse(NapseBase):
 
 
 
-class Layer(LayerBase):
+
+
+class Activation(Enum):
+    RELU = "relu"
+    SIGMOID = "sigmoid"
+
+
+'''
+precedence: top precedes bottom
+**  Exponentiation
+~x  Bitwise not
++x, -x  Positive, negative
+*, /, % Multiplication, division, remainder
++, -    Addition, subtraction
+<<, >>  Bitwise shifts
+&   Bitwise AND
+^   Bitwise XOR
+|   Bitwise OR
+in, not in, is, is not, <, <=,  >,  >=,
+<>, !=, ==
+
+'''
+
+class LayerBase():
+    def __init__(self, name,shape, activation=Activation.RELU):
+        self.type=None  # "input_layer", "hidden_layer" or "cost_layer"
+        self.weights = {"W":None, "b":None}
+        self.X=None
+        self.grads = {"dA":None,"dW":None, "db":None}
+        self.input_layer=self
+        self.output_layer=self
+        self.cost_layer=self
+        self.prev=self
+        self.next=self
+        assert (name!=None), "layer name cannot be None"
+        self.name=name
+        self.shape=shape
+        self.size=np.prod(shape)
+        self.cache=None
+        self.activation=activation
+
+
+
+#see: https://www.journaldev.com/26737/python-bitwise-operators
+class LayerClass(LayerBase):
 
     def __init__(self, name,shape, activation=Activation.RELU):
         super().__init__(name, shape, activation)
+        self.filters={LayerType.PreFilter.value:[],LayerType.PostFilter.value:[]}
         self.napse = None
+
+        #this is pointer to a function that can be applied on a layer's data, X or sigma(X), grads.
+        #this is valid when the layer.type=filter
+        self.func = None 
 
 
     def A(self):
         return self.X
 
+
+    def __or__(self, first_filter ):
+        first_filter.layer = self
+        self.filters[first_filter.type.value].append(first_filter)
+        return self
+
     def __gt__(self, next_layer):
         self.next = next_layer
         next_layer.prev = self
-        if isinstance(next_layer, CostLayer):
+        if next_layer.type==LayerType.CostLayer:
             next_layer.napse = Napse(next_layer)
             return next_layer.napse
         return next_layer # to be able to propogate '>' to tbe next layer
 
+    def gt(self, next_layer):
+        self.__gt__(next_layer)
+
+        
 
     def __lt__(self, layer_):
         self.prev = layer_
@@ -247,7 +193,7 @@ class Layer(LayerBase):
     def __str__(self):
         return "%s, %d" % (self.name, self.size)
 
-class CostLayer(LayerBase):
+class CostLayerClass(LayerClass):
     pass
 
     def __init__(self, name,shape):
@@ -255,8 +201,50 @@ class CostLayer(LayerBase):
         self.cost=None
 
 
+def InputLayer(name="input_layer", shape=(1,1), activation=Activation.RELU):
+    layer_ = LayerClass(name, shape, activation)
+    layer_.type=LayerType.InputLayer
+    return layer_;
+
+def HiddenLayer(name="hidden_layer", shape=(1,1), activation=Activation.RELU):
+    layer_ = LayerClass(name, shape, activation)
+    layer_.type=LayerType.HiddenLayer
+    return layer_;
+
+def Layer(name="hidden_layer", shape=(1,1), activation=Activation.RELU):
+    return  HiddenLayer(name, shape, activation);
+
+def OutputLayer(name="output_layer", shape=(1,1), activation=Activation.RELU):
+    layer_ = LayerClass(name, shape, activation)
+    layer_.type=LayerType.OutputLayer
+    return layer_;
+
+def Filter(name, func):
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.PreFilter
+    layer_.func = func
+    return layer_;
+
+#operates on X in the layer
+def PreFilter(name, func):
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.PreFilter
+    layer_.func = func
+    return layer_;
+
+def Conv2D(name, func):
+    return PreFilter(name, func)
 
 
-#def __init__(self, name, size)
-#    super().__init__(name, size)
+#operates on sigma(X) in the layer
+def PostFilter(name, func):
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.PostFilter
+    layer_.func = func
+    return layer_;
+
+def CostLayer():
+    layer_ = LayerClass(name="cost_layer", shape=None, activation=None)
+    layer_.type=LayerType.CostLayer
+    return layer_;
 
