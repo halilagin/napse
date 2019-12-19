@@ -40,6 +40,7 @@ nn =      Layer("input_layer",(2,1)) \
             | PostFilter("Filter2", filter_dummy)\
         > Layer("output_layer",(1,1), activation=Activation.SIGMOID)\
         > CostLayer()\
+            | SGD(batch_size=32)\
             | L2Regularizer(lambda_=1e-4)
 
 nn.train(train_X,train_Y, epochs=15000, learning_rate=0.2)

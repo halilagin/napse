@@ -38,6 +38,10 @@ class Napse(NapseBase):
         super().__init__(cost_layer)
         self.tie_layers()
         self.costs=[]
+        self.Y=None
+        # for mini batch and sgd it is required to be generic.
+        # the default is to forward on all X smaples, but it can be sliced for each iteration
+        self.batch_indexes=None 
         self.optimizer = NapseOptimizerGD(self)
 
     def tie_layers(self):
@@ -61,13 +65,36 @@ class Napse(NapseBase):
         return False
 
     def train(self,X, Y, epochs=1, learning_rate=0.001, weights=None):
-        self.X = X
         self.Y = Y
-        self.input_layer.X = X
+        self.set_input(X)
+        self.set_sgd_parameters()
         if weights!=None:
             self.set_weights(weights)
         self.run_initializer() # if there is an initializier overwrite weights
         self.optimizer.optimize(epochs, learning_rate)
+
+    def set_sgd_parameters(self):
+        #if sgd filter is attached to cost_layer, batch_sizes should be updated
+        if self.filter_exists(LayerType.SGDParameter.value):
+            batch_size = self.cost_layer.filters[LayerType.SGDParameter.value][0].properties["batch_size"]
+            self.batch_indexes = self.prepare_batch_indexes(self.input_layer.X.shape[1], batch_size)
+
+    def set_input(self, X):
+        self.input_layer.X = X
+        # the default batch indexes is the lower and upper bound of X, one tuple of indexes
+        self.batch_indexes = self.prepare_batch_indexes(self.input_layer.X.shape[1], self.input_layer.X.shape[1])
+
+
+
+    def prepare_batch_indexes(self, arr_length, batch_size):
+        indexes=[]
+        for batch_lower in range(0,arr_length, batch_size):
+            batch_upper = batch_lower+batch_size
+            if batch_upper > arr_length:
+                batch_upper = arr_length
+            indexes.append([batch_lower,batch_upper])
+        return indexes
+
 
     def run_initializer(self):
         pass
@@ -79,9 +106,8 @@ class Napse(NapseBase):
             
 
     def predict(self, X):
-        self.X = X
-        self.input_layer.X = X
-        m = X.shape[1]
+        self.set_input(X)
+        m = self.input_layer.X.shape[1]
         p = np.zeros((1,m))
         prediction_ = self.optimizer.predict(X)
         return prediction_
@@ -293,6 +319,21 @@ def PostFilter(name, func):
     layer_.func = func
     return layer_;
 
+#operates on sigma(X) in the layer
+def PostFilter(name, func):
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.PostFilter
+    layer_.func = func
+    return layer_;
+
+def SGD(batch_size=1):
+    name="SGD parameter"
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.SGDParameter
+    #layer_.func = func
+    layer_.properties["batch_size"]=batch_size
+    return layer_;
+
 def L2Regularizer(lambda_=0.1):
     name="L2 regularizer"
     layer_ = LayerClass(name=name, shape=None, activation=None)
@@ -300,6 +341,7 @@ def L2Regularizer(lambda_=0.1):
     #layer_.func = func
     layer_.properties["lambda_"]=lambda_
     return layer_;
+
 
 def DropOutRegularizer(keep=0.8):
     name="Dropout regularizer"

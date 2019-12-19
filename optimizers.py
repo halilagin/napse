@@ -39,14 +39,19 @@ class NapseOptimizerGD(NapseOptimizerBase):
         self.napse = napse
 
 
-    def linear_forward(self,A,W,b):
+    def linear_forward(self,A,W,b, batch_indexes):
+        #X=A, batch_indexes slice the X into chunks for SGD and mini-batch
         Z = np.dot(W,A)+b
         cache = {"A":A, "W":W, "b":b}
         return Z, cache
 
-    def linear_activation_forward(self,layer):
+    def linear_activation_forward(self,layer, batch_indexes):
         W,b = layer.weights["W"], layer.weights["b"]
-        Z, linear_cache = self.linear_forward(layer.prev.A(), W, b)
+
+        Aprev = layer.prev.A()
+        Aprev = Aprev[:,batch_indexes[0]:batch_indexes[1]]
+        Z, linear_cache = self.linear_forward(Aprev, W, b, batch_indexes)
+        
         Z = self.apply_prefilter(layer, Z)
         A_, activation_cache = ActivationFunctions().forward[layer.activation.value](Z)
 
@@ -79,15 +84,18 @@ class NapseOptimizerGD(NapseOptimizerBase):
             A = f.func(A)
         return A
 
-    def propagateForward(self, layer):
-        Aprev,cache = self.linear_activation_forward(layer)
+    def propagateForward(self, layer, batch_indexes):
+        Aprev,cache = self.linear_activation_forward(layer, batch_indexes)
         layer.X = Aprev 
         layer.cache = cache
 
-    def forward(self):
+    def forward(self, batch_indexes=None):
+        if batch_indexes==None:
+            #if no batches, make the batch the whole sample
+            batch_indexes=self.napse.batch_indexes[0]
         for hlayer in self.napse.hidden_layers:
-            self.propagateForward(hlayer)
-        self.propagateForward(self.napse.output_layer)
+            self.propagateForward(hlayer, batch_indexes)
+        self.propagateForward(self.napse.output_layer, batch_indexes)
 
     def propagateBackward(self):
         pass
@@ -124,7 +132,7 @@ class NapseOptimizerGD(NapseOptimizerBase):
         dZ = ActivationFunctions().backward[layer.activation.value](layer.grads["dA"], layer.cache["activation"])
         return self.linear_backward(dZ, layer) 
 
-    def backward(self, Y):
+    def backward(self, Y, batch_indexes=None):
 
         def apply_dropout_if_it_exists(dA_, layer_):
             #dropout filter should not be applied on output_layer
@@ -141,7 +149,7 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
         AL = self.napse.output_layer.A()
         m = AL.shape[1]
-        Y = Y.reshape(AL.shape)
+        Y = Y[:, batch_indexes[0]:batch_indexes[1]].reshape(AL.shape)
 
 
         self.napse.output_layer.grads["dA"] = - (np.divide(Y, AL) - np.divide(1 - Y, 1 - AL))
@@ -158,10 +166,11 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
     
 
-    def compute_cost(self):
-        AL = self.napse.output_layer.A()
-        Y = self.napse.Y
+    def compute_cost(self, batch_indexes):
+        AL = self.napse.output_layer.A()[:,batch_indexes[0]:batch_indexes[1]] # do slicing for SGD and mini-batch
+        Y = self.napse.Y[:,batch_indexes[0]:batch_indexes[1]]
         m = Y.shape[1]
+        print ("y.shape:", Y.shape, "AL.shape:",AL.shape, "batch_indexes:",batch_indexes)
         cost = (-1./m) * np.nansum( np.multiply(Y, np.log(AL)) + np.multiply((1-Y), np.log(1-AL)) )
         if self.napse.filter_exists(LayerType.L2Regularizer.value): 
             lambda_ = self.napse.cost_layer.filters[LayerType.L2Regularizer.value][0].properties["lambda_"]
@@ -176,15 +185,21 @@ class NapseOptimizerGD(NapseOptimizerBase):
         return np.squeeze(w_sum)
 
 
-
-
     def epoch(self,  n, learning_rate=0.001):
+
+        #batch_indexes=None
+        #bach_size_ = 1 
+        #if self.filter_exists(LayerType.SGDCommand.value):#SGD activated
+            #batch_size_ = self.napse.output_layer.filters[LayerType.SGDCommand.value][0].properties["batch_size"]
+        #batch_indexes = prepare_batch_indexes(self.input_layer.X.shape[1], batch_size=batch_size_)
+
         for i in range(n):
-            self.forward()
-            self.napse.cost_layer.cost = self.compute_cost()
-            self.napse.costs.append(self.napse.cost_layer.cost)
-            self.backward(self.napse.Y)
-            self.update_weights(learning_rate)
+            for batch_indexes in self.napse.batch_indexes:
+                self.forward(batch_indexes = batch_indexes)
+                self.napse.cost_layer.cost = self.compute_cost(batch_indexes = batch_indexes)
+                self.napse.costs.append(self.napse.cost_layer.cost)
+                self.backward(self.napse.Y, batch_indexes = batch_indexes)
+                self.update_weights(learning_rate)
 
     def update_weights(self, learning_rate=0.001):
         for layer in self.napse.hidden_layers:
@@ -195,6 +210,7 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
 
     def predict(self, X):
+        self.napse.set_input(X)
         self.forward()
         return  self.napse.output_layer.A().flatten()
         

@@ -14,3 +14,4 @@ class LayerType(Enum):
     WeightInitializer = "WeightInitializer"
     L2Regularizer = "L2Regularizer"
     DropOutRegularizer = "DropOutRegularizer"
+    SGDParameter = "SGDParameter"
