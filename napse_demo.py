@@ -8,6 +8,7 @@ import sklearn
 from sklearn import datasets
 from napse import *
 from sklearn.preprocessing import normalize
+from initializers import *
 
 
 
@@ -29,19 +30,23 @@ train_X, train_Y, test_X, test_Y = load_dataset(DataNoise = 0.15, Visualize=Fals
 
 def filter_func (x_):
     return sklearn.preprocessing.normalize(x_)
-filter_dummy = lambda x:x
+def filter_dummy(x_):
+    return x_
+
 nn =      Layer("input_layer",(2,1)) \
+            | RandomInitializer()\
         > Layer("h1", (5,1)) \
             | PreFilter("Filter1", filter_dummy)\
             | PostFilter("Filter2", filter_dummy)\
         > Layer("output_layer",(1,1), activation=Activation.SIGMOID)\
-        > CostLayer()
+        > CostLayer()\
+            | L2Regularizer(lambda_=1e-4)
 
-nn.train(train_X,train_Y, num_iterations=15000, learning_rate=0.2)
-train_predict = nn.predict(train_X)
+nn.train(train_X,train_Y, epochs=15000, learning_rate=0.2)
+train_predict = nn.predict(test_X)
 train_predict[train_predict>=0.5]=1
 train_predict[train_predict<0.5]=0
-print("train accuracy: {} ".format(np.mean(train_predict == train_Y)) )
+print("train accuracy: {} ".format(np.mean(train_predict == test_Y)) )
 
 
 #print (nn.hidden_layers)

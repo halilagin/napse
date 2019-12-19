@@ -30,6 +30,8 @@ class NapseBase():
         self.hidden_layers = []
 
 
+
+
 class Napse(NapseBase):
 
     def __init__(self, cost_layer):
@@ -47,17 +49,34 @@ class Napse(NapseBase):
             hidden_layer = hidden_layer.prev
         self.input_layer = hidden_layer
 
+# layer.napse.cost_layer.filters[LayerType.L2Regularizer.value][0].type
+    def filter_exists(self, filter_type):
+        l_ = self.input_layer
+        while True:
+            if l_.filter_exists(filter_type):
+                return True
+            if l_.type==LayerType.CostLayer:
+                break
+            l_ = l_.next
+        return False
 
-    def train(self,X, Y, num_iterations=1, learning_rate=0.001, weights=None):
+    def train(self,X, Y, epochs=1, learning_rate=0.001, weights=None):
         self.X = X
         self.Y = Y
         self.input_layer.X = X
-        if weights==None:
-            self.init_weights()
-        else:
+        if weights!=None:
             self.set_weights(weights)
-        self.optimizer.optimize(num_iterations, learning_rate)
+        self.run_initializer() # if there is an initializier overwrite weights
+        self.optimizer.optimize(epochs, learning_rate)
 
+    def run_initializer(self):
+        pass
+        initializer_ = None
+        if len(self.input_layer.filters[LayerType.WeightInitializer.value])>0:
+            initializer_ = self.input_layer.filters[LayerType.WeightInitializer.value][0]
+        if initializer_!=None: #there is a weight initializer
+            initializer_.func(self)
+            
 
     def predict(self, X):
         self.X = X
@@ -81,6 +100,10 @@ class Napse(NapseBase):
             layer.weights["b"] = np.zeros((layer.shape[0], 1)) * 0.01
         self.output_layer.weights["W"] = np.random.randn(self.output_layer.shape[0], self.output_layer.prev.shape[0]) * 0.01
         self.output_layer.weights["b"] = np.zeros( (self.output_layer.shape[0], 1) ) * 0.01
+
+
+
+
    
     def __str__(self):
         str_ = ""
@@ -137,18 +160,29 @@ class LayerBase():
 
 
 
+
+
 #see: https://www.journaldev.com/26737/python-bitwise-operators
 class LayerClass(LayerBase):
 
     def __init__(self, name,shape, activation=Activation.RELU):
         super().__init__(name, shape, activation)
-        self.filters={LayerType.PreFilter.value:[],LayerType.PostFilter.value:[]}
+        self.filters= {} #{LayerType.PreFilter.value:[],LayerType.PostFilter.value:[], LayerType.WeightInitializer.value:[]}
         self.napse = None
+        self.properties={} # filter properties
 
         #this is pointer to a function that can be applied on a layer's data, X or sigma(X), grads.
         #this is valid when the layer.type=filter
         self.func = None 
 
+
+    def add_filter(self, filter_):
+        if filter_.type.value not in self.filters:
+            self.filters[filter_.type.value]=[]
+        self.filters[filter_.type.value].append(filter_)
+
+    def filter_exists(self, filter_type):
+        return filter_type in self.filters
 
     def A(self):
         return self.X
@@ -156,14 +190,25 @@ class LayerClass(LayerBase):
 
     def __or__(self, first_filter ):
         first_filter.layer = self
-        self.filters[first_filter.type.value].append(first_filter)
+        #self.filters[first_filter.type.value].append(first_filter)
+        self.add_filter(first_filter)
         return self
 
     def __gt__(self, next_layer):
+
+        def set_napse(layer, napse):
+            #this layer is the cost_layer and build connection between napse and this layer.
+            layer.napse = napse
+            #besides, all layers should points to napse object too.
+            l_ = layer.prev
+            while l_!=l_.prev:
+                l_.napse = napse
+                l_=l_.prev
+
         self.next = next_layer
         next_layer.prev = self
         if next_layer.type==LayerType.CostLayer:
-            next_layer.napse = Napse(next_layer)
+            set_napse(next_layer, Napse(next_layer))
             return next_layer.napse
         return next_layer # to be able to propogate '>' to tbe next layer
 
@@ -194,7 +239,6 @@ class LayerClass(LayerBase):
         return "%s, %d" % (self.name, self.size)
 
 class CostLayerClass(LayerClass):
-    pass
 
     def __init__(self, name,shape):
         super().__init__(name, shape)
@@ -218,6 +262,12 @@ def OutputLayer(name="output_layer", shape=(1,1), activation=Activation.RELU):
     layer_ = LayerClass(name, shape, activation)
     layer_.type=LayerType.OutputLayer
     return layer_;
+
+def CostLayer():
+    layer_ = LayerClass(name="cost_layer", shape=None, activation=None)
+    layer_.type=LayerType.CostLayer
+    return layer_;
+
 
 def Filter(name, func):
     layer_ = LayerClass(name=name, shape=None, activation=None)
@@ -243,8 +293,33 @@ def PostFilter(name, func):
     layer_.func = func
     return layer_;
 
-def CostLayer():
-    layer_ = LayerClass(name="cost_layer", shape=None, activation=None)
-    layer_.type=LayerType.CostLayer
+def L2Regularizer(lambda_=0.1):
+    name="L2 regularizer"
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.L2Regularizer
+    #layer_.func = func
+    layer_.properties["lambda_"]=lambda_
     return layer_;
 
+def DropOutRegularizer(keep=0.8):
+    name="Dropout regularizer"
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.DropOutRegularizer
+    
+    def forward_func(A, keep ):
+        D1 = np.random.rand(*A.shape)
+        D1 = D1 < keep       
+        A = A * D1                
+        A = A / keep  
+        assert(np.isnan(A).any()==False)
+        return A, D1
+    def backward_func(dA, keep_prob, cache_dropouts):
+        dA = dA * cache_dropouts
+        dA = dA / keep_prob    
+        assert(np.isnan(dA).any()==False)
+        return dA
+
+    layer_.properties["keep"]=keep
+    layer_.properties["forward_func"]=forward_func
+    layer_.properties["backward_func"]=backward_func
+    return layer_;

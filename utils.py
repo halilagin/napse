@@ -11,3 +11,6 @@ class LayerType(Enum):
     OutputLayer = "OutputLayer"
     PreFilter = "PreFilter"
     PostFilter = "PostFilter"
+    WeightInitializer = "WeightInitializer"
+    L2Regularizer = "L2Regularizer"
+    DropOutRegularizer = "DropOutRegularizer"
