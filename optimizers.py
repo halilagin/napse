@@ -15,7 +15,7 @@ import scipy
 import sklearn
 from activation_functions import ActivationFunctions
 from enum import Enum
-from utils import LayerType
+from utils import *
 from napse import *
 
 '''
@@ -79,15 +79,17 @@ class NapseOptimizerGD(NapseOptimizerBase):
             A = f.func(A)
         return A
 
-    def propagateForward(self, layer):
+    def layer_forward(self, layer):
         Aprev,cache = self.linear_activation_forward(layer)
         layer.X = Aprev 
         layer.cache = cache
+        layer.epoch_count = layer.epoch_count + 1
 
-    def forward(self):
+
+    def nn_forward(self):
         for hlayer in self.napse.hidden_layers:
-            self.propagateForward(hlayer)
-        self.propagateForward(self.napse.output_layer)
+            self.layer_forward(hlayer)
+        self.layer_forward(self.napse.output_layer)
 
     def propagateBackward(self):
         pass
@@ -124,7 +126,7 @@ class NapseOptimizerGD(NapseOptimizerBase):
         dZ = ActivationFunctions().backward[layer.activation.value](layer.grads["dA"], layer.cache["activation"])
         return self.linear_backward(dZ, layer) 
 
-    def backward(self, Y):
+    def backward(self ):
 
         def apply_dropout_if_it_exists(dA_, layer_):
             #dropout filter should not be applied on output_layer
@@ -141,7 +143,7 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
         AL = self.napse.output_layer.A()
         m = AL.shape[1]
-        Y = Y.reshape(AL.shape)
+        Y = self.napse.Y.reshape(AL.shape)
 
 
         self.napse.output_layer.grads["dA"] = - (np.divide(Y, AL) - np.divide(1 - Y, 1 - AL))
@@ -178,13 +180,64 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
 
 
-    def epoch(self,  n, learning_rate=0.001):
+    def gd_optimizer(self, n, learning_rate=0.001):
         for i in range(n):
-            self.forward()
-            self.napse.cost_layer.cost = self.compute_cost()
-            self.napse.costs.append(self.napse.cost_layer.cost)
-            self.backward(self.napse.Y)
-            self.update_weights(learning_rate)
+            for batch_indexes in self.napse.batch_indexes:
+
+                batch_lower,batch_upper = batch_indexes[0], batch_indexes[1]
+                minibatch_X = self.napse.X_original[:,batch_lower:batch_upper]
+                minibatch_Y = self.napse.Y_original[:,batch_lower:batch_upper]
+
+                #there is only one batch containing the whole samples
+                self.napse.input_layer.X = minibatch_X 
+                self.napse.Y = minibatch_Y
+
+                self.nn_forward()
+                self.napse.cost_layer.cost = self.compute_cost()
+                self.napse.costs.append(self.napse.cost_layer.cost)
+                self.backward()
+                self.update_weights(learning_rate)
+
+    def minibatch_gd_optimizer(self, n, learning_rate=0.001):
+        for i in range(n):
+            for batch_indexes in self.napse.batch_indexes:
+
+                batch_lower,batch_upper = batch_indexes[0], batch_indexes[1]
+                minibatch_X = self.napse.X_original[:,batch_lower:batch_upper]
+                minibatch_Y = self.napse.Y_original[:,batch_lower:batch_upper]
+
+                self.napse.input_layer.X = minibatch_X 
+                self.napse.Y = minibatch_Y
+
+                self.nn_forward()
+                self.napse.cost_layer.cost = self.compute_cost()
+                self.napse.costs.append(self.napse.cost_layer.cost)
+                self.backward()
+                self.update_weights(learning_rate)
+
+    def sgd_optimizer(self, n, learning_rate=0.001):
+        for i in range(n):
+            for batch_indexes in self.napse.batch_indexes:
+
+                batch_lower,batch_upper = batch_indexes[0], batch_indexes[1]
+                minibatch_X = self.napse.X_original[:,batch_lower:batch_upper]
+                minibatch_Y = self.napse.Y_original[:,batch_lower:batch_upper]
+
+
+                m = len(minibatch_X)
+                permutation = list(np.random.permutation(m))
+                shuffled_X = minibatch_X[:, permutation]
+                shuffled_Y = minibatch_Y[:, permutation].reshape((1,m))
+
+
+                self.napse.input_layer.X = shuffled_X
+                self.napse.Y = shuffled_Y
+
+                self.nn_forward()
+                self.napse.cost_layer.cost = self.compute_cost()
+                self.napse.costs.append(self.napse.cost_layer.cost)
+                self.backward()
+                self.update_weights(learning_rate)
 
     def update_weights(self, learning_rate=0.001):
         for layer in self.napse.hidden_layers:
@@ -195,11 +248,17 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
 
     def predict(self, X):
-        self.forward()
+        self.nn_forward()
         return  self.napse.output_layer.A().flatten()
         
     def optimize(self,num_iterations, learning_rate):
-        self.epoch(num_iterations, learning_rate)
+        #self.epoch(num_iterations, learning_rate)
+        if self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.GD.value:
+            self.gd_optimizer(num_iterations, learning_rate)
+        elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.MiniBatchGD.value:
+            self.minibatch_gd_optimizer(num_iterations, learning_rate)
+        elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.SGD.value:
+            self.sgd_optimizer(num_iterations, learning_rate)
 
 
 

@@ -40,9 +40,11 @@ nn =      Layer("input_layer",(2,1)) \
             | PostFilter("Filter2", filter_dummy)\
         > Layer("output_layer",(1,1), activation=Activation.SIGMOID)\
         > CostLayer()\
-            | L2Regularizer(lambda_=1e-4)
+            | Optimizer( GD(batch_size=128) )
 
 nn.train(train_X,train_Y, epochs=15000, learning_rate=0.2)
+print ("batch_index.count :", len(nn.batch_indexes))
+print ("epoch count:",nn.output_layer.epoch_count)
 train_predict = nn.predict(test_X)
 train_predict[train_predict>=0.5]=1
 train_predict[train_predict<0.5]=0

@@ -2,6 +2,12 @@
 from enum import Enum
 
 
+class OptimizationAlgorithm(Enum):
+    GD = "GD"
+    SGD = "SGD"
+    MiniBatchGD = "MiniBatchGD"
+    ADAM = "ADAM"
+
 
 
 class LayerType(Enum):
@@ -14,3 +20,4 @@ class LayerType(Enum):
     WeightInitializer = "WeightInitializer"
     L2Regularizer = "L2Regularizer"
     DropOutRegularizer = "DropOutRegularizer"
+    Optimizer = "Optimizer"

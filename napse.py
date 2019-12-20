@@ -38,6 +38,11 @@ class Napse(NapseBase):
         super().__init__(cost_layer)
         self.tie_layers()
         self.costs=[]
+        self.X_original = None
+        self.Y_original = None
+        self.Y=None
+        self.batch_indexes=None
+        self.optimization_algorithm=OptimizationAlgorithm
         self.optimizer = NapseOptimizerGD(self)
 
     def tie_layers(self):
@@ -61,13 +66,46 @@ class Napse(NapseBase):
         return False
 
     def train(self,X, Y, epochs=1, learning_rate=0.001, weights=None):
-        self.X = X
-        self.Y = Y
-        self.input_layer.X = X
+        self.X_original = X
+        self.Y_original = Y
+        self.set_default_batch_indexes() # one single batch
+        self.set_optimization_algorithm()
         if weights!=None:
             self.set_weights(weights)
         self.run_initializer() # if there is an initializier overwrite weights
         self.optimizer.optimize(epochs, learning_rate)
+
+
+    def set_optimization_algorithm(self):
+        if False == self.filter_exists(LayerType.Optimizer.value):
+            self.optimization_algorithm = GD()
+        else:
+            self.optimization_algorithm = self.cost_layer.filters[LayerType.Optimizer.value][0] #there is always one in index=0
+
+        if self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.GD.value:
+            self.set_default_batch_indexes()
+        elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.MiniBatchGD.value:
+            batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
+            self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+        elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.SGD.value:
+            batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
+            self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+            
+
+
+    def set_default_batch_indexes(self):
+        # the default batch indexes is the lower and upper bound of X, one tuple of indexes
+        self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], self.X_original.shape[1])
+
+    def prepare_batch_indexes(self, arr_length, batch_size):
+        indexes=[]
+        for batch_lower in range(0,arr_length, batch_size):
+            batch_upper = batch_lower+batch_size
+            if batch_upper > arr_length:
+                batch_upper = arr_length
+            indexes.append([batch_lower,batch_upper])
+        return indexes
+
 
     def run_initializer(self):
         pass
@@ -79,7 +117,6 @@ class Napse(NapseBase):
             
 
     def predict(self, X):
-        self.X = X
         self.input_layer.X = X
         m = X.shape[1]
         p = np.zeros((1,m))
@@ -101,10 +138,6 @@ class Napse(NapseBase):
         self.output_layer.weights["W"] = np.random.randn(self.output_layer.shape[0], self.output_layer.prev.shape[0]) * 0.01
         self.output_layer.weights["b"] = np.zeros( (self.output_layer.shape[0], 1) ) * 0.01
 
-
-
-
-   
     def __str__(self):
         str_ = ""
         layer=self.input_layer
@@ -160,8 +193,6 @@ class LayerBase():
 
 
 
-
-
 #see: https://www.journaldev.com/26737/python-bitwise-operators
 class LayerClass(LayerBase):
 
@@ -169,24 +200,27 @@ class LayerClass(LayerBase):
         super().__init__(name, shape, activation)
         self.filters= {} #{LayerType.PreFilter.value:[],LayerType.PostFilter.value:[], LayerType.WeightInitializer.value:[]}
         self.napse = None
+        self.epoch_count=0 # how many epoches processed on this layer
         self.properties={} # filter properties
 
         #this is pointer to a function that can be applied on a layer's data, X or sigma(X), grads.
         #this is valid when the layer.type=filter
         self.func = None 
 
-
     def add_filter(self, filter_):
         if filter_.type.value not in self.filters:
             self.filters[filter_.type.value]=[]
-        self.filters[filter_.type.value].append(filter_)
+
+        if filter_.type==LayerType.Optimizer:
+            self.filters[filter_.type.value]=[filter_]# there can only be one optimizer
+        else: 
+            self.filters[filter_.type.value].append(filter_)
 
     def filter_exists(self, filter_type):
         return filter_type in self.filters
 
     def A(self):
         return self.X
-
 
     def __or__(self, first_filter ):
         first_filter.layer = self
@@ -285,13 +319,36 @@ def PreFilter(name, func):
 def Conv2D(name, func):
     return PreFilter(name, func)
 
-
 #operates on sigma(X) in the layer
 def PostFilter(name, func):
     layer_ = LayerClass(name=name, shape=None, activation=None)
     layer_.type=LayerType.PostFilter
     layer_.func = func
     return layer_;
+
+
+class GD():
+    def __init__(self, batch_size=None):
+        self.type=OptimizationAlgorithm.GD.value
+
+class MiniBatchGD():
+    def __init__(self, batch_size=None):
+        self.type=OptimizationAlgorithm.MiniBatchGD.value
+        self.batch_size=batch_size
+
+class SGD():
+    def __init__(self, batch_size=None):
+        #layer_.func = func
+        self.type=OptimizationAlgorithm.SGD.value
+        self.batch_size=batch_size
+
+def Optimizer(optimizer_implementation):
+    name="Optimizer"
+    layer_ = LayerClass(name=name, shape=None, activation=None)
+    layer_.type=LayerType.Optimizer
+    layer_.properties["optimizer"]=optimizer_implementation
+    return layer_;
+
 
 def L2Regularizer(lambda_=0.1):
     name="L2 regularizer"
