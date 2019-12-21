@@ -40,9 +40,9 @@ nn =      Layer("input_layer",(2,1)) \
             | PostFilter("Filter2", filter_dummy)\
         > Layer("output_layer",(1,1), activation=Activation.SIGMOID)\
         > CostLayer()\
-            | Optimizer( GD(batch_size=128) )
+            | Optimizer( Adam(batch_size=64) )
 
-nn.train(train_X,train_Y, epochs=15000, learning_rate=0.2)
+nn.train(train_X,train_Y, epochs=15000, learning_rate=0.01)
 print ("batch_index.count :", len(nn.batch_indexes))
 print ("epoch count:",nn.output_layer.epoch_count)
 train_predict = nn.predict(test_X)

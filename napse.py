@@ -69,14 +69,39 @@ class Napse(NapseBase):
         self.X_original = X
         self.Y_original = Y
         self.set_default_batch_indexes() # one single batch
-        self.set_optimization_algorithm()
         if weights!=None:
             self.set_weights(weights)
-        self.run_initializer() # if there is an initializier overwrite weights
+
+        self.run_initializer()
+        #this inits adam parameters with respect to weights initializations
+        self.init_optimization_algorithm()
         self.optimizer.optimize(epochs, learning_rate)
 
 
-    def set_optimization_algorithm(self):
+
+
+    def init_optimizer_minibatch_gd(self):
+        batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
+        self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+
+    def init_optimizer_sgd(self):
+        batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
+        self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+
+    def init_optimizer_adam(self):
+        batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
+        self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+        
+        l_ = self.hidden_layers[0]
+        while l_!=self.cost_layer:
+            l_.adam["v_dW"] = np.zeros_like(l_.weights["W"])
+            l_.adam["v_db"] = np.zeros_like(l_.weights["b"])
+            l_.adam["s_dW"] = np.zeros_like(l_.weights["W"])
+            l_.adam["s_db"] = np.zeros_like(l_.weights["b"])
+            l_ = l_.next
+        
+
+    def init_optimization_algorithm(self):
         if False == self.filter_exists(LayerType.Optimizer.value):
             self.optimization_algorithm = GD()
         else:
@@ -85,12 +110,14 @@ class Napse(NapseBase):
         if self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.GD.value:
             self.set_default_batch_indexes()
         elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.MiniBatchGD.value:
-            batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
-            self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+            self.init_optimizer_minibatch_gd()
         elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.SGD.value:
-            batch_size = self.cost_layer.filters[LayerType.Optimizer.value][0].properties["optimizer"].batch_size
-            self.batch_indexes = self.prepare_batch_indexes(self.X_original.shape[1], batch_size)
+            self.init_optimizer_sgd()
+        elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.Adam.value:
+            self.init_optimizer_adam()
             
+
+
 
 
     def set_default_batch_indexes(self):
@@ -179,6 +206,7 @@ class LayerBase():
         self.weights = {"W":None, "b":None}
         self.X=None
         self.grads = {"dA":None,"dW":None, "db":None}
+        self.adam = {"v_W":None, "v_b":None, "s_W":None, "s_b":None, "v_dW":None, "v_db":None}
         self.input_layer=self
         self.output_layer=self
         self.cost_layer=self
@@ -341,6 +369,17 @@ class SGD():
         #layer_.func = func
         self.type=OptimizationAlgorithm.SGD.value
         self.batch_size=batch_size
+
+class Adam():
+    def __init__(self, batch_size=None, t=2, beta1=0.9, beta2=0.999, epsilon=1e-6):
+        #layer_.func = func
+        self.type=OptimizationAlgorithm.Adam.value
+        self.batch_size=batch_size
+        self.beta1 = beta1
+        self.beta2 = beta2
+        self.epsilon = epsilon
+        self.t = t
+
 
 def Optimizer(optimizer_implementation):
     name="Optimizer"

@@ -239,13 +239,80 @@ class NapseOptimizerGD(NapseOptimizerBase):
                 self.backward()
                 self.update_weights(learning_rate)
 
-    def update_weights(self, learning_rate=0.001):
+    def adam_optimizer(self, n, learning_rate=0.001):
+        for i in range(n):
+            for batch_indexes in self.napse.batch_indexes:
+
+                batch_lower,batch_upper = batch_indexes[0], batch_indexes[1]
+                minibatch_X = self.napse.X_original[:,batch_lower:batch_upper]
+                minibatch_Y = self.napse.Y_original[:,batch_lower:batch_upper]
+
+
+                m = len(minibatch_X)
+                permutation = list(np.random.permutation(m))
+                shuffled_X = minibatch_X[:, permutation]
+                shuffled_Y = minibatch_Y[:, permutation].reshape((1,m))
+
+
+                self.napse.input_layer.X = shuffled_X
+                self.napse.Y = shuffled_Y
+
+                self.nn_forward()
+                self.napse.cost_layer.cost = self.compute_cost()
+                self.napse.costs.append(self.napse.cost_layer.cost)
+                self.backward()
+                self.update_weights(learning_rate)
+
+
+
+    def default_update_weights(self, learning_rate=0.001):
         for layer in self.napse.hidden_layers:
             layer.weights["W" ] = layer.weights["W"] - learning_rate * layer.grads["dW"]
             layer.weights["b"]  = layer.weights["b"] - learning_rate * layer.grads["db"]
         self.napse.output_layer.weights["W" ] = self.napse.output_layer.weights["W"] - learning_rate * self.napse.output_layer.grads["dW"]
         self.napse.output_layer.weights["b"]  = self.napse.output_layer.weights["b"] - learning_rate * self.napse.output_layer.grads["db"]
 
+    def adam_update_weights(self, learning_rate=0.001):
+        adam_optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        beta1 = adam_optimizer.beta1
+        beta2 = adam_optimizer.beta2
+        epsilon = adam_optimizer.epsilon
+        t = adam_optimizer.t
+
+
+
+        v_corrected = {}          
+        s_corrected = {}         
+
+
+        def update_layer_weights(layer):
+            layer.adam["v_dW"] = beta1 * layer.adam["v_dW"] + (1 - beta1) * layer.grads['dW']
+            layer.adam["v_db"] = beta1 * layer.adam["v_db"] + (1 - beta1) * layer.grads['db']
+            layer.adam["s_dW"] = beta2 * layer.adam["s_dW"] + (1 - beta2) * np.power(layer.grads['dW'], 2)
+            layer.adam["s_db"] = beta2 * layer.adam["s_db"] + (1 - beta2) * np.power(layer.grads['db'], 2)
+
+            v_corrected["dW"] = layer.adam["v_dW"] / (1 - np.power(beta1, t) )
+            v_corrected["db"] = layer.adam["v_db"] / (1 - np.power(beta1, t) )
+            s_corrected["dW"] = layer.adam["s_dW"] / (1 - np.power(beta2, t))
+            s_corrected["db"] = layer.adam["s_db"] / (1 - np.power(beta2, t))
+
+            layer.weights["W"] = layer.weights["W"] - learning_rate * v_corrected["dW"] / np.sqrt(s_corrected["dW"] + epsilon)
+            layer.weights["b"] = layer.weights["b"] - learning_rate * v_corrected["db"] / np.sqrt(s_corrected["db"] + epsilon)
+
+
+        for l_ in self.napse.hidden_layers:
+            update_layer_weights(l_)
+        update_layer_weights(self.napse.output_layer)
+
+
+    def update_weights(self, learning_rate=0.001):
+        pass
+        adam_optimizer_on = self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.Adam.value
+
+        if adam_optimizer_on==False:
+            self.default_update_weights(learning_rate)
+        else:
+            self.adam_update_weights(learning_rate)
 
     def predict(self, X):
         self.nn_forward()
@@ -259,6 +326,8 @@ class NapseOptimizerGD(NapseOptimizerBase):
             self.minibatch_gd_optimizer(num_iterations, learning_rate)
         elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.SGD.value:
             self.sgd_optimizer(num_iterations, learning_rate)
+        elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.Adam.value:
+            self.adam_optimizer(num_iterations, learning_rate)
 
 
 

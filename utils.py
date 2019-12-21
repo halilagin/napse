@@ -6,7 +6,7 @@ class OptimizationAlgorithm(Enum):
     GD = "GD"
     SGD = "SGD"
     MiniBatchGD = "MiniBatchGD"
-    ADAM = "ADAM"
+    Adam = "Adam"
 
 
 
