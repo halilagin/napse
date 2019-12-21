@@ -21,7 +21,7 @@ nn.train(train_X,train_Y, num_iterations=15000, learning_rate=0.2)
 
 testing multiple optimizers.
 
-````python
+```python
 
 
 nn =    Layer("input_layer",(2,1)) \
