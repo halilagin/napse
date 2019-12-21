@@ -180,7 +180,9 @@ class NapseOptimizerGD(NapseOptimizerBase):
 
 
 
-    def gd_optimizer(self, n, learning_rate=0.001):
+    def gd_optimizer(self):
+        optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        n = optimizer.epochs
         for i in range(n):
             for batch_indexes in self.napse.batch_indexes:
 
@@ -196,9 +198,11 @@ class NapseOptimizerGD(NapseOptimizerBase):
                 self.napse.cost_layer.cost = self.compute_cost()
                 self.napse.costs.append(self.napse.cost_layer.cost)
                 self.backward()
-                self.update_weights(learning_rate)
+                self.update_weights()
 
-    def minibatch_gd_optimizer(self, n, learning_rate=0.001):
+    def minibatch_gd_optimizer(self):
+        optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        n = optimizer.epochs
         for i in range(n):
             for batch_indexes in self.napse.batch_indexes:
 
@@ -213,9 +217,11 @@ class NapseOptimizerGD(NapseOptimizerBase):
                 self.napse.cost_layer.cost = self.compute_cost()
                 self.napse.costs.append(self.napse.cost_layer.cost)
                 self.backward()
-                self.update_weights(learning_rate)
+                self.update_weights()
 
-    def sgd_optimizer(self, n, learning_rate=0.001):
+    def sgd_optimizer(self):
+        optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        n = optimizer.epochs
         for i in range(n):
             for batch_indexes in self.napse.batch_indexes:
 
@@ -237,54 +243,41 @@ class NapseOptimizerGD(NapseOptimizerBase):
                 self.napse.cost_layer.cost = self.compute_cost()
                 self.napse.costs.append(self.napse.cost_layer.cost)
                 self.backward()
-                self.update_weights(learning_rate)
+                self.update_weights()
 
-    def adam_optimizer(self, n, learning_rate=0.001):
+    def adam_optimizer(self):
+        self.napse.input_layer.X = self.napse.X_original
+        self.napse.Y = self.napse.Y_original
+        optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        n = optimizer.epochs
         for i in range(n):
-            for batch_indexes in self.napse.batch_indexes:
-
-                batch_lower,batch_upper = batch_indexes[0], batch_indexes[1]
-                minibatch_X = self.napse.X_original[:,batch_lower:batch_upper]
-                minibatch_Y = self.napse.Y_original[:,batch_lower:batch_upper]
-
-
-                m = len(minibatch_X)
-                permutation = list(np.random.permutation(m))
-                shuffled_X = minibatch_X[:, permutation]
-                shuffled_Y = minibatch_Y[:, permutation].reshape((1,m))
-
-
-                self.napse.input_layer.X = shuffled_X
-                self.napse.Y = shuffled_Y
-
-                self.nn_forward()
-                self.napse.cost_layer.cost = self.compute_cost()
-                self.napse.costs.append(self.napse.cost_layer.cost)
-                self.backward()
-                self.update_weights(learning_rate)
+            self.nn_forward()
+            self.napse.cost_layer.cost = self.compute_cost()
+            self.napse.costs.append(self.napse.cost_layer.cost)
+            self.backward()
+            self.update_weights()
 
 
 
-    def default_update_weights(self, learning_rate=0.001):
+    def default_update_weights(self):
+        optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        learning_rate = optimizer.lr
         for layer in self.napse.hidden_layers:
             layer.weights["W" ] = layer.weights["W"] - learning_rate * layer.grads["dW"]
             layer.weights["b"]  = layer.weights["b"] - learning_rate * layer.grads["db"]
         self.napse.output_layer.weights["W" ] = self.napse.output_layer.weights["W"] - learning_rate * self.napse.output_layer.grads["dW"]
         self.napse.output_layer.weights["b"]  = self.napse.output_layer.weights["b"] - learning_rate * self.napse.output_layer.grads["db"]
 
-    def adam_update_weights(self, learning_rate=0.001):
+    def adam_update_weights(self):
         adam_optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        learning_rate = adam_optimizer.lr
         beta1 = adam_optimizer.beta1
         beta2 = adam_optimizer.beta2
         epsilon = adam_optimizer.epsilon
         t = adam_optimizer.t
 
-
-
         v_corrected = {}          
         s_corrected = {}         
-
-
         def update_layer_weights(layer):
             layer.adam["v_dW"] = beta1 * layer.adam["v_dW"] + (1 - beta1) * layer.grads['dW']
             layer.adam["v_db"] = beta1 * layer.adam["v_db"] + (1 - beta1) * layer.grads['db']
@@ -305,14 +298,14 @@ class NapseOptimizerGD(NapseOptimizerBase):
         update_layer_weights(self.napse.output_layer)
 
 
-    def update_weights(self, learning_rate=0.001):
+    def update_weights(self):
         pass
         adam_optimizer_on = self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.Adam.value
 
-        if adam_optimizer_on==False:
-            self.default_update_weights(learning_rate)
+        if adam_optimizer_on:
+            self.adam_update_weights()
         else:
-            self.adam_update_weights(learning_rate)
+            self.default_update_weights()
 
     def predict(self, X):
         self.nn_forward()
@@ -320,14 +313,15 @@ class NapseOptimizerGD(NapseOptimizerBase):
         
     def optimize(self,num_iterations, learning_rate):
         #self.epoch(num_iterations, learning_rate)
-        if self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.GD.value:
-            self.gd_optimizer(num_iterations, learning_rate)
-        elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.MiniBatchGD.value:
-            self.minibatch_gd_optimizer(num_iterations, learning_rate)
-        elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.SGD.value:
-            self.sgd_optimizer(num_iterations, learning_rate)
-        elif self.napse.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.Adam.value:
-            self.adam_optimizer(num_iterations, learning_rate)
+        optimizer = self.napse.optimization_algorithm.properties["optimizer"]
+        if optimizer.type == OptimizationAlgorithm.GD.value:
+            self.gd_optimizer()
+        elif optimizer.type == OptimizationAlgorithm.MiniBatchGD.value:
+            self.minibatch_gd_optimizer()
+        elif optimizer.type == OptimizationAlgorithm.SGD.value:
+            self.sgd_optimizer()
+        elif optimizer.type == OptimizationAlgorithm.Adam.value:
+            self.adam_optimizer()
 
 
 

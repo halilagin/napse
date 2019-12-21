@@ -107,13 +107,14 @@ class Napse(NapseBase):
         else:
             self.optimization_algorithm = self.cost_layer.filters[LayerType.Optimizer.value][0] #there is always one in index=0
 
-        if self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.GD.value:
+        opt_algo_type = self.optimization_algorithm.properties["optimizer"].type
+        if opt_algo_type == OptimizationAlgorithm.GD.value:
             self.set_default_batch_indexes()
-        elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.MiniBatchGD.value:
+        elif opt_algo_type == OptimizationAlgorithm.MiniBatchGD.value:
             self.init_optimizer_minibatch_gd()
-        elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.SGD.value:
+        elif opt_algo_type == OptimizationAlgorithm.SGD.value:
             self.init_optimizer_sgd()
-        elif self.optimization_algorithm.properties["optimizer"].type == OptimizationAlgorithm.Adam.value:
+        elif opt_algo_type == OptimizationAlgorithm.Adam.value:
             self.init_optimizer_adam()
             
 
@@ -218,6 +219,7 @@ class LayerBase():
         self.size=np.prod(shape)
         self.cache=None
         self.activation=activation
+        self.active=True
 
 
 
@@ -236,6 +238,8 @@ class LayerClass(LayerBase):
         self.func = None 
 
     def add_filter(self, filter_):
+        if filter_.active==False:
+            return
         if filter_.type.value not in self.filters:
             self.filters[filter_.type.value]=[]
 
@@ -281,6 +285,15 @@ class LayerClass(LayerBase):
 
     def __lt__(self, layer_):
         self.prev = layer_
+
+
+
+    def __invert__(self):
+        return self.__neg__(self)
+
+    def __neg__(self):
+        self.active=False
+        return self
 
     def __add__(self, other):
         pass
@@ -356,24 +369,33 @@ def PostFilter(name, func):
 
 
 class GD():
-    def __init__(self, batch_size=None):
+    def __init__(self, epochs=10, lr=0.01, batch_size=None):
         self.type=OptimizationAlgorithm.GD.value
+        self.lr = lr
+        self.epochs = epochs
 
 class MiniBatchGD():
-    def __init__(self, batch_size=None):
+    def __init__(self, epochs=10, lr=0.01, batch_size=None):
         self.type=OptimizationAlgorithm.MiniBatchGD.value
+        self.epochs = epochs
+        self.lr = lr
+        self.epochs = epochs
         self.batch_size=batch_size
 
 class SGD():
-    def __init__(self, batch_size=None):
+    def __init__(self, epochs=10, lr=0.01, batch_size=None):
         #layer_.func = func
         self.type=OptimizationAlgorithm.SGD.value
+        self.epochs = epochs
+        self.lr = lr
         self.batch_size=batch_size
 
 class Adam():
-    def __init__(self, batch_size=None, t=2, beta1=0.9, beta2=0.999, epsilon=1e-6):
+    def __init__(self, epochs=10, lr=0.01, batch_size=None, t=2, beta1=0.9, beta2=0.999, epsilon=1e-6):
         #layer_.func = func
         self.type=OptimizationAlgorithm.Adam.value
+        self.epochs = epochs
+        self.lr = lr
         self.batch_size=batch_size
         self.beta1 = beta1
         self.beta2 = beta2
